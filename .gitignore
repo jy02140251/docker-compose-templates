@@ -1,0 +1,20 @@
+# Environment
+.env
+.env.*
+
+# Data volumes
+data/
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+*.pem
+*.key
+*.crt
