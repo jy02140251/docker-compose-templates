@@ -1,0 +1,103 @@
+# Django + PostgreSQL Stack
+# Django application with PostgreSQL and Celery
+version: "3.9"
+
+services:
+  # Django Application
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: django-web
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - DATABASE_URL=postgresql://django_user:django_pass@postgres:5432/django_db
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${DJANGO_SECRET_KEY:-change-me-in-production}
+      - ALLOWED_HOSTS=*
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - static_files:/app/staticfiles
+      - media_files:/app/media
+    networks:
+      - backend
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120"
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: django-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: django_db
+      POSTGRES_USER: django_user
+      POSTGRES_PASSWORD: django_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U django_user -d django_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - backend
+
+  # Redis (Cache + Celery Broker)
+  redis:
+    image: redis:7-alpine
+    container_name: django-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+
+  # Celery Worker
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: django-celery
+    restart: unless-stopped
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - DATABASE_URL=postgresql://django_user:django_pass@postgres:5432/django_db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - backend
+    command: celery -A config worker --loglevel=info --concurrency=4
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  static_files:
+    driver: local
+  media_files:
+    driver: local
+
+networks:
+  backend:
+    driver: bridge
