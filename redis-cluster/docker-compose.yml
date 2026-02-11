@@ -1,0 +1,70 @@
+version: "3.8"
+
+services:
+  redis-master:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-master-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis123}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - redis-net
+
+  redis-slave-1:
+    image: redis:7-alpine
+    command: >
+      redis-server --appendonly yes
+      --slaveof redis-master 6379
+      --masterauth ${REDIS_PASSWORD:-redis123}
+      --requirepass ${REDIS_PASSWORD:-redis123}
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    volumes:
+      - redis-slave1-data:/data
+    networks:
+      - redis-net
+
+  redis-slave-2:
+    image: redis:7-alpine
+    command: >
+      redis-server --appendonly yes
+      --slaveof redis-master 6379
+      --masterauth ${REDIS_PASSWORD:-redis123}
+      --requirepass ${REDIS_PASSWORD:-redis123}
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    volumes:
+      - redis-slave2-data:/data
+    networks:
+      - redis-net
+
+  redis-sentinel:
+    image: redis:7-alpine
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./sentinel.conf:/etc/redis/sentinel.conf
+    depends_on:
+      - redis-master
+      - redis-slave-1
+      - redis-slave-2
+    ports:
+      - "26379:26379"
+    networks:
+      - redis-net
+
+volumes:
+  redis-master-data:
+  redis-slave1-data:
+  redis-slave2-data:
+
+networks:
+  redis-net:
+    driver: bridge
